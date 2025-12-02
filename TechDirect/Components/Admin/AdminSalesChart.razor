@@ -1,0 +1,94 @@
+﻿@rendermode InteractiveServer
+@using Blazorise.Charts
+@using TechDirect.Data
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.Extensions.DependencyInjection
+@inject IServiceScopeFactory ScopeFactory
+
+<div class="mt-4">
+    <h4>Sales in the last 7 days</h4>
+
+    <LineChart TItem="double" @ref="salesChart" Style="max-width: 100%; height: 320px;" />
+</div>
+
+@code {
+    private LineChart<double>? salesChart;
+
+    // Labels (Mon, Tue, ...) and sales values for each day
+    private readonly List<string> labels = new();
+    private readonly List<double> values = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSalesDataAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || salesChart is null)
+            return;
+
+        await RedrawAsync();
+    }
+
+    private async Task LoadSalesDataAsync()
+    {
+        labels.Clear();
+        values.Clear();
+
+        using var scope = ScopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        var today = DateTime.Today;
+        var fromDate = today.AddDays(-6); // 7 days total, including today
+
+        // Pull all orders for the last 7 days and group by the DATE part
+        var raw = await db.Orders
+            .Where(o => o.CreatedAt.Date >= fromDate && o.CreatedAt.Date <= today)
+            .GroupBy(o => o.CreatedAt.Date)
+            .Select(g => new
+            {
+                Date = g.Key,
+                Total = g.Sum(o => o.Total)
+            })
+            .ToListAsync();
+
+        // Build the 7-day series in order (oldest → today)
+        for (int i = 6; i >= 0; i--)
+        {
+            var date = today.AddDays(-i).Date;
+
+            var entry = raw.FirstOrDefault(x => x.Date == date);
+            var dayTotal = entry?.Total ?? 0m;
+
+            labels.Add(date.ToString("ddd"));         // Mon, Tue, ...
+            values.Add((double)dayTotal);
+        }
+    }
+
+
+    private async Task RedrawAsync()
+    {
+        if (salesChart is null)
+            return;
+
+        await salesChart.Clear();
+        await salesChart.AddLabelsDatasetsAndUpdate(labels.ToArray(), GetSalesDataset());
+    }
+
+    private LineChartDataset<double> GetSalesDataset()
+    {
+        return new LineChartDataset<double>
+        {
+            Label = "Total sales ($)",
+            Data = values,
+            Fill = false,
+            BorderWidth = 3,
+            BorderColor = "rgba(75, 192, 192, 1)",          // teal line
+            BackgroundColor = "rgba(75, 192, 192, 0.25)",   // light fill under line
+            PointBackgroundColor = "rgba(75, 192, 192, 1)",
+            PointRadius = 4,
+            Tension = 0.3f                                  // slight curve
+        };
+    }
+}

@@ -1,27 +1,120 @@
 ﻿@page "/account/orders"
+@rendermode InteractiveServer
+
 @layout ManageLayout
 
-<h3>My orders</h3>
+@using TechDirect.Data
+@using Microsoft.EntityFrameworkCore
+@using System.Security.Claims
 
-<p class="text-muted">
-    Your order history will appear here.
-</p>
+@inject ApplicationDbContext Db
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Nav
 
-<table class="table">
-    <thead>
-        <tr>
-            <th>Order ID</th>
-            <th>Date</th>
-            <th>Status</th>
-            <th class="text-end">Total</th>
-        </tr>
-    </thead>
-    <tbody>
-        <tr>
-            <td>#TD-20456</td>
-            <td>08 Nov 2025</td>
-            <td>Shipped</td>
-            <td class="text-end">$1,499.00</td>
-        </tr>
-    </tbody>
-</table>
+<h3>My Orders</h3>
+
+@if (isLoading)
+{
+    <p>Loading your orders...</p>
+}
+else if (!isAuthenticated)
+{
+    <div class="alert alert-warning">
+        You must be logged in to see your orders.
+        <NavLink class="btn btn-sm btn-outline-primary ms-2" href="/login">Login</NavLink>
+    </div>
+}
+else if (orders.Count == 0)
+{
+    <p>You have not placed any orders yet.</p>
+}
+else
+{
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>Order #</th>
+                <th>Date</th>
+                <th>Status</th>
+                <th>Total</th>
+                <th>Items</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var o in orders)
+            {
+                <tr>
+                    <td>@o.Id</td>
+                    <td>@o.CreatedAt.ToLocalTime().ToString("g")</td>
+                    <td>@o.Status</td>
+                    <td>$@o.Total</td>
+                    <td>
+                        @if (o.Items != null && o.Items.Count > 0)
+                        {
+                            <ul class="list-unstyled mb-0">
+                                @foreach (var item in o.Items)
+                                {
+                                    <li class="d-flex align-items-center mb-1">
+                                        @if (!string.IsNullOrEmpty(item.ImageUrl))
+                                        {
+                                            <img src="@item.ImageUrl"
+                                                 class="me-2"
+                                                 style="width: 40px; height: 40px; object-fit: contain; border-radius: 4px;" />
+                                        }
+
+                                        <span>@item.ProductName</span>
+
+                                        @if (item.Quantity > 1)
+                                        {
+                                            <span class="text-muted ms-2">(Qty: @item.Quantity)</span>
+                                        }
+                                    </li>
+                                }
+                            </ul>
+                        }
+                        else
+                        {
+                            <span class="text-muted">No items</span>
+                        }
+                    </td>
+
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private bool isLoading = true;
+    private bool isAuthenticated;
+    private List<Order> orders = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        isAuthenticated = user.Identity?.IsAuthenticated == true;
+
+        if (!isAuthenticated)
+        {
+            isLoading = false;
+            return;
+        }
+
+        var userId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+        if (string.IsNullOrEmpty(userId))
+        {
+            isLoading = false;
+            return;
+        }
+
+        orders = await Db.Orders
+            .Where(o => o.UserId == userId)
+            .Include(o => o.Items)
+            .OrderByDescending(o => o.CreatedAt)
+            .ToListAsync();
+
+        isLoading = false;
+    }
+}

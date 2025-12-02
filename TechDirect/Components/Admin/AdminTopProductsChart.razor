@@ -1,0 +1,91 @@
+﻿@rendermode InteractiveServer
+@using Blazorise.Charts
+@using TechDirect.Data
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.Extensions.DependencyInjection
+@inject IServiceScopeFactory ScopeFactory
+
+<div class="mt-4">
+    <h4>Top selling products (by quantity)</h4>
+
+    <BarChart TItem="int" @ref="productsChart" Style="max-width: 100%; height: 320px;" />
+</div>
+
+@code {
+    private BarChart<int>? productsChart;
+
+    private readonly List<string> labels = new();
+    private readonly List<int> values = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || productsChart is null)
+            return;
+
+        await RedrawAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        labels.Clear();
+        values.Clear();
+
+        using var scope = ScopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        // Group order items by product name and sum quantities
+        var topProducts = await db.Orders
+            .Include(o => o.Items)
+            .Where(o => o.Items != null && o.Items.Count > 0)
+            .SelectMany(o => o.Items!)
+            .GroupBy(i => i.ProductName)
+            .Select(g => new
+            {
+                ProductName = g.Key,
+                Quantity = g.Sum(i => i.Quantity)
+            })
+            .OrderByDescending(x => x.Quantity)
+            .Take(5)
+            .ToListAsync();
+
+        foreach (var p in topProducts)
+        {
+            labels.Add(p.ProductName);
+            values.Add(p.Quantity);
+        }
+    }
+
+    private async Task RedrawAsync()
+    {
+        if (productsChart is null)
+            return;
+
+        await productsChart.Clear();
+
+        var colours = new[]
+{
+    "rgba(54, 162, 235, 0.8)",   // blue
+    "rgba(255, 99, 132, 0.8)",   // red
+    "rgba(255, 206, 86, 0.8)",   // yellow
+    "rgba(75, 192, 192, 0.8)",   // teal
+    "rgba(153, 102, 255, 0.8)"   // purple
+};
+
+        var dataset = new BarChartDataset<int>
+        {
+            Label = "Units sold",
+            Data = values,
+            BorderWidth = 1,
+            BackgroundColor = colours.Take(values.Count).ToList(),
+            BorderColor = colours.Take(values.Count).ToList()
+        };
+
+
+        await productsChart.AddLabelsDatasetsAndUpdate(labels.ToArray(), dataset);
+    }
+}

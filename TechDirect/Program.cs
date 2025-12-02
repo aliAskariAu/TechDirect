@@ -1,17 +1,29 @@
+using Blazorise;
+using Blazorise.Bootstrap5;
+using Blazorise.Icons.FontAwesome;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using TechDirect.Components;
 using TechDirect.Components.Account;
 using TechDirect.Data;
-using TechDirect.Services;
 using TechDirect.Data.Seed;
+using TechDirect.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+
+builder.Services
+    .AddBlazorise(options =>
+    {
+        options.Immediate = true;
+    })
+    .AddBootstrap5Providers()
+    .AddFontAwesomeIcons();
+
 
 builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddScoped<IdentityUserAccessor>();
@@ -29,6 +41,7 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(connectionString));
 builder.Services.AddDatabaseDeveloperPageExceptionFilter();
+
 
 builder.Services.AddIdentityCore<ApplicationUser>(options => options.SignIn.RequireConfirmedAccount = false)
     .AddRoles<IdentityRole>()
@@ -48,6 +61,11 @@ builder.Services.Configure<EmailSettings>(
 
 builder.Services.AddTransient<MailKitEmailSender>();
 builder.Services.AddTransient<IEmailSender<ApplicationUser>, MailKitIdentityEmailSender>();
+
+builder.Services.AddSingleton<CartService>();
+
+
+builder.Services.AddScoped<OrderEmailService>();
 
 var app = builder.Build();
 
@@ -71,9 +89,10 @@ else
 }
 
 app.UseHttpsRedirection();
-
+app.UseStatusCodePagesWithReExecute("/StatusCode/{0}");
 app.UseStaticFiles();
 app.UseAntiforgery();
+
 
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();

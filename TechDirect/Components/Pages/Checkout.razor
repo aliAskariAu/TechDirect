@@ -1,0 +1,175 @@
+﻿@page "/checkout"
+@rendermode InteractiveServer
+@layout MainLayout
+
+@using TechDirect.Components.Layout
+@using TechDirect.Services
+@using TechDirect.Data
+@using Microsoft.EntityFrameworkCore
+@using System.Security.Claims
+
+@inject CartService CartService
+@inject ApplicationDbContext Db
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Nav
+@inject OrderEmailService orderEmailService
+<h3>Checkout</h3>
+
+@if (isProcessing)
+{
+    <p>Placing your order...</p>
+}
+else if (!CartService.Items.Any())
+{
+    <div class="alert alert-info">
+        Your cart is empty.
+    </div>
+    <button class="btn btn-secondary" @onclick="@(() => Nav.NavigateTo("/products"))">
+        Back to products
+    </button>
+}
+else
+{
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger">@errorMessage</div>
+    }
+
+    @if (!isAuthenticated)
+    {
+        <div class="alert alert-warning">
+            You must log in to complete your order.
+            <NavLink class="btn btn-sm btn-outline-primary ms-2" href="/login">Login</NavLink>
+        </div>
+    }
+
+    <h5>Order summary</h5>
+
+    <table class="table table-bordered">
+        <thead>
+            <tr>
+                <th>Product</th>
+                <th style="width: 120px;">Price</th>
+                <th style="width: 80px;">Qty</th>
+                <th style="width: 120px;">Subtotal</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var item in CartService.Items)
+            {
+                <tr>
+                    <td>@item.ProductName</td>
+                    <td>$@item.Price</td>
+                    <td>@item.Quantity</td>
+                    <td>$@(item.Price* item.Quantity)</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+
+    <h4>Total: $@CartService.Total</h4>
+
+    <button class="btn btn-primary mt-3" @onclick="PlaceOrder" disabled="@( !isAuthenticated )">
+        Place order
+    </button>
+
+    <button class="btn btn-secondary mt-3 ms-2" @onclick="@(() => Nav.NavigateTo("/cart"))">
+        Back to cart
+    </button>
+}
+
+@code {
+    private bool isAuthenticated;
+    private bool isProcessing;
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!CartService.Items.Any())
+        {
+            // No cart, send back
+            Nav.NavigateTo("/cart");
+            return;
+        }
+
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        isAuthenticated = user.Identity?.IsAuthenticated == true;
+    }
+
+    private async Task PlaceOrder()
+    {
+        errorMessage = null;
+
+        if (!CartService.Items.Any())
+        {
+            errorMessage = "Your cart is empty.";
+            return;
+        }
+
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+
+        if (user.Identity?.IsAuthenticated != true)
+        {
+            errorMessage = "You must log in to place an order.";
+            Nav.NavigateTo("/login");
+            return;
+        }
+
+        var userId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userId))
+        {
+            errorMessage = "Could not determine your user account.";
+            return;
+        }
+
+        isProcessing = true;
+
+        var order = new Order
+        {
+            UserId = userId,
+            Total = CartService.Total,
+            CreatedAt = DateTime.UtcNow,
+            Status = "Pending"
+        };
+
+        foreach (var item in CartService.Items)
+        {
+            order.Items.Add(new OrderItem
+            {
+                ProductName = item.ProductName,
+                ImageUrl = item.ImageUrl,          
+                Price = item.Price,
+                Quantity = item.Quantity,
+                Subtotal = item.Price * item.Quantity
+            });
+        }
+
+
+        Db.Orders.Add(order);
+        await Db.SaveChangesAsync();
+        // Get email from claims
+        var email = user.FindFirstValue(ClaimTypes.Email);
+
+        if (!string.IsNullOrEmpty(email))
+        {
+            try
+            {
+                await orderEmailService.SendOrderConfirmationAsync(email, order);
+            }
+            catch (Exception ex)
+            {
+                // optional: log ex.Message
+                Console.WriteLine($"Failed to send order confirmation: {ex.Message}");
+            }
+        }
+
+        CartService.Clear();
+
+        isProcessing = false;
+
+        // Redirect to My Orders
+        Nav.NavigateTo("/account/orders");
+    }
+}

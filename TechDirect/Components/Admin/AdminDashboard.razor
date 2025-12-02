@@ -1,0 +1,154 @@
+﻿@page "/admin"
+@layout ManageLayout
+@attribute [Authorize(Roles = "Admin")]
+@using Microsoft.AspNetCore.Authorization
+@using TechDirect.Components.Account.Shared
+@using TechDirect.Data
+@using Microsoft.EntityFrameworkCore
+@using TechDirect.Components.Admin
+
+@inject ApplicationDbContext Db
+
+<h3 class="mb-4">Admin Dashboard</h3>
+
+@if (isLoading)
+{
+    <p>Loading stats...</p>
+}
+else
+{
+    <div class="row g-3 mb-4">
+        <div class="col-md-3 col-sm-6">
+            <div class="card bg-primary text-white shadow-sm">
+                <div class="card-body">
+                    <h6 class="card-title">Total sales</h6>
+                    <p class="fs-4 mb-0">@totalSales.ToString("C")</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-3 col-sm-6">
+            <div class="card bg-success text-white shadow-sm">
+                <div class="card-body">
+                    <h6 class="card-title">Today sales</h6>
+                    <p class="fs-4 mb-0">@todaySales.ToString("C")</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-3 col-sm-6">
+            <div class="card bg-info text-white shadow-sm">
+                <div class="card-body">
+                    <h6 class="card-title">Total orders</h6>
+                    <p class="fs-4 mb-0">@totalOrders</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-3 col-sm-6">
+            <div class="card bg-warning text-dark shadow-sm">
+                <div class="card-body">
+                    <h6 class="card-title">Pending orders</h6>
+                    <p class="fs-4 mb-0">@pendingOrders</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <div class="row g-3 mb-4">
+        <div class="col-md-3 col-sm-6">
+            <div class="card bg-secondary text-white shadow-sm">
+                <div class="card-body">
+                    <h6 class="card-title">Total users</h6>
+                    <p class="fs-4 mb-0">@totalUsers</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-3 col-sm-6">
+            <div class="card bg-dark text-white shadow-sm">
+                <div class="card-body">
+                    <h6 class="card-title">New users today</h6>
+                    <p class="fs-4 mb-0">@newUsersToday</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-lg-6 col-12">
+            <AdminSalesChart />
+        </div>
+        <div class="col-lg-6 col-12">
+            <AdminTopProductsChart />
+        </div>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-12">
+            <AdminRecentOrders />
+        </div>
+    </div>
+    <!-- Later we can add small charts or recent orders table here -->
+}
+@code {
+    private bool isLoading = true;
+
+    private int totalOrders;
+    private int pendingOrders;
+    private decimal totalSales;
+    private decimal todaySales;
+    private int totalUsers;
+    private int newUsersToday;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var utcToday = DateTime.UtcNow.Date;
+        var utcTomorrow = utcToday.AddDays(1);
+
+        // Which statuses count as "revenue"
+        var revenueStatuses = new[] { "Completed", "Shipped" };
+
+        // 1. Total orders in system
+        totalOrders = await Db.Orders.CountAsync();
+
+        // 2. Pending orders
+        pendingOrders = await Db.Orders
+            .Where(o => o.Status == "Pending")
+            .CountAsync();
+
+        // 3. Total sales (sum Total for Completed + Shipped)
+        totalSales = await Db.Orders
+            .Where(o => revenueStatuses.Contains(o.Status))
+            .SumAsync(o => (decimal?)o.Total) ?? 0m;
+
+        // 4. Today's sales
+        todaySales = await Db.Orders
+            .Where(o => revenueStatuses.Contains(o.Status)
+                    && o.CreatedAt >= utcToday
+                    && o.CreatedAt < utcTomorrow)
+            .SumAsync(o => (decimal?)o.Total) ?? 0m;
+
+        // 5. Total users (Identity)
+        totalUsers = await Db.Users.CountAsync();
+
+        // 6. New users today (customers whose first order is today)
+        var customersWithEarlierOrder = Db.Orders
+            .Where(o => o.CreatedAt < utcToday && !string.IsNullOrEmpty(o.UserId))
+            .Select(o => o.UserId)
+            .Distinct();
+
+        newUsersToday = await Db.Orders
+            .Where(o => o.CreatedAt >= utcToday
+                        && o.CreatedAt < utcTomorrow
+                        && !string.IsNullOrEmpty(o.UserId)
+                        && !customersWithEarlierOrder.Contains(o.UserId))
+            .Select(o => o.UserId)
+            .Distinct()
+            .CountAsync();
+
+        isLoading = false;
+    }
+
+}

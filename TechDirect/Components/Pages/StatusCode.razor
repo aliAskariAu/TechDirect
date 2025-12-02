@@ -1,0 +1,20 @@
+﻿@page "/StatusCode/{code:int}"
+@using TechDirect.Components.Layout
+@layout MainLayout
+
+<div class="text-center mt-5">
+    @if (Code == 404)
+    {
+        <h1 class="display-4 text-danger">404</h1>
+        <h3>Page not found</h3>
+        <p>The page you are looking for does not exist or has been moved.</p>
+        <a class="btn btn-primary mt-3" href="/">Go back to home</a>
+    }
+    else
+    {
+        <h1 class="display-4 text-warning">@Code</h1>
+        <h3>Error</h3>
+        <p>An error occurred while processing your request.</p>
+        <a class="btn btn-primary mt-3" href="/">Go back to home</a>
+    }
+</div>

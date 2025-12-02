@@ -1,0 +1,102 @@
+﻿@page "/cart"
+
+@using TechDirect.Components.Layout
+@using TechDirect.Services
+@rendermode InteractiveServer
+@layout MainLayout
+
+@inject CartService CartService
+@inject NavigationManager Nav
+
+<h3>Your Cart</h3>
+
+@if (!CartService.Items.Any())
+{
+    <p>Your cart is empty.</p>
+}
+else
+{
+    <table class="table table-bordered">
+        <thead>
+            <tr>
+                <th>Product</th>
+                <th style="width: 120px;">Price</th>
+                <th style="width: 120px;">Qty</th>
+                <th style="width: 120px;">Subtotal</th>
+                <th style="width: 100px;">Remove</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var item in CartService.Items)
+            {
+                <tr>
+                    <td>@item.ProductName</td>
+                    <td>$@item.Price</td>
+                    <td>
+                        <div class="d-flex align-items-center gap-2">
+                            <button class="btn btn-sm btn-outline-secondary"
+                                    @onclick="() => Decrease(item.ProductId)">
+                                -
+                            </button>
+
+                            <span>@item.Quantity</span>
+
+                            <button class="btn btn-sm btn-outline-secondary"
+                                    @onclick="() => Increase(item.ProductId)">
+                                +
+                            </button>
+                        </div>
+                    </td>
+
+                    <td>$@(item.Price* item.Quantity)</td>
+                    <td>
+                        <button class="btn btn-sm btn-danger"
+                                @onclick="() => Remove(item.ProductId)">
+                            X
+                        </button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+
+    <h4>Total: $@CartService.Total</h4>
+
+    <button class="btn btn-secondary" @onclick="ClearCart">Clear cart</button>
+    <button class="btn btn-primary ms-2" @onclick="GoToCheckout">
+        Checkout
+    </button>
+}
+
+@code {
+
+    private void Increase(int id)
+    {
+        CartService.IncreaseQuantity(id);
+    }
+
+    private void Decrease(int id)
+    {
+        CartService.DecreaseQuantity(id);
+    }
+
+    private void Remove(int id)
+    {
+        CartService.RemoveItem(id);
+    }
+
+    private void ClearCart()
+    {
+        CartService.Clear();
+    }
+
+    private void GoToCheckout()
+    {
+        if (!CartService.Items.Any())
+            return;
+
+        Nav.NavigateTo("/checkout");
+    }
+
+
+}

@@ -1,0 +1,297 @@
+﻿@page "/admin/orders"
+@rendermode InteractiveServer
+@layout ManageLayout
+@attribute [Authorize(Roles = "Admin")]
+
+@using Microsoft.AspNetCore.Authorization
+@using TechDirect.Components.Account.Shared
+@using TechDirect.Data
+@using Microsoft.EntityFrameworkCore
+@using TechDirect.Services
+
+@inject ApplicationDbContext Db
+@inject OrderEmailService orderEmailService
+
+<h3>Manage orders</h3>
+
+@if (isLoading)
+{
+    <p>Loading orders...</p>
+}
+else if (!orders.Any())
+{
+    <p>There are no orders yet.</p>
+}
+else
+{
+    @if (!string.IsNullOrEmpty(message))
+    {
+        <div class="alert alert-success">@message</div>
+    }
+
+    <table class="table table-sm table-striped align-middle">
+        <thead>
+            <tr>
+                <th style="width: 70px;">Order #</th>
+                <th style="width: 170px;">Date</th>
+                <th style="width: 230px;">Customer</th>
+                <th style="width: 160px;">Status</th>
+                <th style="width: 110px;">Total</th>
+                <th>Items</th>
+                <th style="width: 90px;">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var o in PagedOrders)
+            {
+                <tr>
+                    <td>@o.Id</td>
+                    <td>@o.CreatedAt.ToLocalTime().ToString("g")</td>
+                    <td>
+                        <div>@GetDisplayName(o.UserId)</div>
+                        <div class="text-muted" style="font-size: 0.85rem;">
+                            @GetEmail(o.UserId)
+                        </div>
+                    </td>
+                    <td>
+                        <select class="form-select form-select-sm" @bind="o.Status">
+                            @foreach (var s in allowedStatuses)
+                            {
+                                <option value="@s">@s</option>
+                            }
+                        </select>
+                    </td>
+                    <td>$@o.Total</td>
+                    <td>
+                        @if (o.Items != null && o.Items.Count > 0)
+                        {
+                            <ul class="list-unstyled mb-0">
+                                @foreach (var item in o.Items)
+                                {
+                                    <li class="d-flex align-items-center mb-1">
+                                        @if (!string.IsNullOrEmpty(item.ImageUrl))
+                                        {
+                                            <img src="@item.ImageUrl"
+                                                 class="me-2"
+                                                 style="width: 40px; height: 40px; object-fit: contain; border-radius: 4px;" />
+                                        }
+
+                                        <span>@item.ProductName</span>
+
+                                        @if (item.Quantity > 1)
+                                        {
+                                            <span class="text-muted ms-2">(Qty: @item.Quantity)</span>
+                                        }
+                                    </li>
+                                }
+                            </ul>
+                        }
+                        else
+                        {
+                            <span class="text-muted">No items</span>
+                        }
+                    </td>
+                    <td>
+                        <button class="btn btn-sm btn-primary"
+                                @onclick="() => SaveStatusAsync(o)">
+                            Save
+                        </button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+
+    <div class="d-flex justify-content-between align-items-center mt-2">
+        <div class="text-muted">
+            Showing
+            @((orders.Count == 0 ? 0 : (currentPage - 1) * OrdersPageSize + 1))
+            -
+            @((currentPage * OrdersPageSize > orders.Count ? orders.Count : currentPage * OrdersPageSize))
+            of @orders.Count orders
+        </div>
+
+        <div class="btn-group">
+            <button class="btn btn-outline-secondary btn-sm"
+                    disabled="@(currentPage <= 1)"
+                    @onclick="() => ChangePage(-1)">
+                Previous
+            </button>
+
+            <span class="btn btn-light btn-sm disabled">
+                Page @currentPage of @TotalPages
+            </span>
+
+            <button class="btn btn-outline-secondary btn-sm"
+                    disabled="@(currentPage >= TotalPages)"
+                    @onclick="() => ChangePage(1)">
+                Next
+            </button>
+        </div>
+    </div>
+
+}
+
+@code {
+    private List<Order> orders = new();
+    private bool isLoading = true;
+    private string? message;
+    private Dictionary<string, (string FullName, string Email)> userInfo
+    = new();
+
+    // Pagination 
+    private const int OrdersPageSize = 10;
+    private int currentPage = 1;
+
+    private int TotalPages =>
+        orders.Count == 0
+            ? 1
+            : (int)Math.Ceiling(orders.Count / (double)OrdersPageSize);
+
+    private IEnumerable<Order> PagedOrders =>
+        orders
+            .Skip((currentPage - 1) * OrdersPageSize)
+            .Take(OrdersPageSize);
+
+
+    // Allowed states for an order
+    private readonly string[] allowedStatuses =
+        { "Pending", "Processing", "Shipped", "Completed", "Cancelled" };
+
+    // Inject email service
+    [Inject] public OrderEmailService OrderEmailService { get; set; } = default!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadOrders();
+    }
+
+    private async Task LoadOrders()
+    {
+        isLoading = true;
+        message = null;
+
+        // 1. Load orders
+        orders = await Db.Orders
+            .Include(o => o.Items)
+            .OrderByDescending(o => o.CreatedAt)
+            .ToListAsync();
+
+        // 2. Collect distinct userIds from those orders
+        var userIds = orders
+            .Select(o => o.UserId)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct()
+            .ToList();
+
+        // 3. Load those users
+        var users = await Db.Users
+            .Where(u => userIds.Contains(u.Id))
+            .ToListAsync();
+
+        // 4. Build map userId -> full name
+        userInfo = users.ToDictionary(
+            u => u.Id,
+            u => (
+                FullName: GetUserFullName(u),
+                Email: u.Email ?? "No email"
+            ));
+
+        currentPage = 1;
+
+        isLoading = false;
+
+    }
+
+    private static string GetUserFullName(ApplicationUser? user)
+    {
+        if (user == null)
+            return "Unknown";
+
+        var first = user.FirstName ?? string.Empty;
+        var last = user.LastName ?? string.Empty;
+        var full = $"{first} {last}".Trim();
+
+        if (!string.IsNullOrWhiteSpace(full))
+            return full;
+
+        if (!string.IsNullOrWhiteSpace(user.Email))
+            return user.Email;
+
+        return "Unknown";
+    }
+
+    private string GetDisplayName(string? userId)
+    {
+        if (string.IsNullOrWhiteSpace(userId))
+            return "Guest / Unknown";
+
+        if (userInfo.TryGetValue(userId, out var info))
+            return info.FullName;
+
+        return userId; // fallback
+    }
+
+
+    private string GetEmail(string? userId)
+    {
+        if (string.IsNullOrWhiteSpace(userId))
+            return "Unknown";
+
+        if (userInfo.TryGetValue(userId, out var info))
+            return info.Email;
+
+        return "Unknown";
+    }
+
+
+
+    private async Task SaveStatusAsync(Order order)
+    {
+        message = null;
+
+        // 1. Get original status before saving
+        var originalStatus = (await Db.Orders
+            .AsNoTracking()
+            .FirstOrDefaultAsync(o => o.Id == order.Id))
+            ?.Status;
+
+        // 2. Save new status
+        await Db.SaveChangesAsync();
+
+        // 3. Detect if status changed
+        if (originalStatus != null && originalStatus != order.Status)
+        {
+            try
+            {
+                // 4. Find the user
+                var user = await Db.Users
+                    .FirstOrDefaultAsync(u => u.Id == order.UserId);
+
+                if (user != null && !string.IsNullOrWhiteSpace(user.Email))
+                {
+                    await OrderEmailService.SendStatusUpdateAsync(user.Email, order);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Email send failed: {ex.Message}");
+            }
+        }
+
+        message = $"Order #{order.Id} status updated to {order.Status}.";
+    }
+
+    private void ChangePage(int delta)
+    {
+        var newPage = currentPage + delta;
+
+        if (newPage < 1)
+            newPage = 1;
+        if (newPage > TotalPages)
+            newPage = TotalPages;
+
+        currentPage = newPage;
+    }
+
+}

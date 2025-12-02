@@ -1,0 +1,105 @@
+﻿@page "/products/{Id:int}"
+@rendermode InteractiveServer
+@layout MainLayout
+
+@using TechDirect.Components.Layout
+@using TechDirect.Data
+@using Microsoft.EntityFrameworkCore
+@using TechDirect.Services
+@inject ApplicationDbContext Db
+@inject NavigationManager Nav
+@inject CartService Cart
+
+@if (isLoading)
+{
+    <p>Loading product...</p>
+}
+else if (product == null)
+{
+    <div class="alert alert-warning">
+        Product not found.
+    </div>
+    <button class="btn btn-secondary" @onclick="BackToList">
+        Back to products
+    </button>
+}
+else
+{
+    <div class="row mb-4">
+        <div class="col-md-5">
+            @if (!string.IsNullOrEmpty(product.ImageUrl))
+            {
+                <img src="@product.ImageUrl"
+                     alt="@product.Name"
+                     class="img-fluid border rounded"
+                     style="max-height: 400px; object-fit: contain;" />
+            }
+            else
+            {
+                <div class="border rounded d-flex align-items-center justify-content-center"
+                     style="height: 300px;">
+                    <span class="text-muted">No image</span>
+                </div>
+            }
+        </div>
+
+        <div class="col-md-7">
+            <h2>@product.Name</h2>
+
+            <p class="text-muted mb-1">
+                Category: @product.Category?.Name
+            </p>
+
+            <p class="fs-4 fw-bold mb-3">
+                $@product.Price
+            </p>
+
+            @if (!string.IsNullOrWhiteSpace(product.Description))
+            {
+                <p>@product.Description</p>
+            }
+
+            <p class="mb-3">
+                <strong>Stock:</strong> @product.Stock
+            </p>
+
+            <div class="d-flex gap-2">
+                <button class="btn btn-primary" @onclick="AddToCart">
+                    Add to cart
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private Product? product;
+    private bool isLoading = true;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        isLoading = true;
+
+        product = await Db.Products
+            .Include(p => p.Category)
+            .FirstOrDefaultAsync(p => p.Id == Id);
+
+        isLoading = false;
+    }
+
+    private void BackToList()
+    {
+        Nav.NavigateTo("/products");
+    }
+
+    private void AddToCart()
+    {
+        if (product != null)
+        {
+            Cart.AddItem(product);
+            Nav.NavigateTo("/cart");
+        }
+    }
+}

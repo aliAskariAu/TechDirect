@@ -5,6 +5,19 @@
 @inject SignInManager<ApplicationUser> SignInManager
 
 <ul class="account-nav nav flex-column">
+    <!-- Admin-only Dashboard at the top -->
+    <li class="nav-item mb-1">
+        <AuthorizeView Roles="Admin">
+            <Authorized>
+                <NavLink class="nav-link" href="/admin">
+                    Dashboard
+                </NavLink>
+            </Authorized>
+            <NotAuthorized>
+                @* show nothing for non-admin *@
+            </NotAuthorized>
+        </AuthorizeView>
+    </li>
     <li class="nav-item mb-1">
         <NavLink class="nav-link"
                  href="Account/Manage"
@@ -57,10 +70,17 @@
 
     <!-- Admin-only items -->
     <AuthorizeView Roles="Admin">
+        
         <li class="nav-item mt-3 mb-1">
             <NavLink class="nav-link" href="admin/orders">
                 All orders
             </NavLink>
+        </li>
+        <li>
+            <NavLink class="nav-link" href="/admin/categories">
+                Categories
+            </NavLink>
+
         </li>
         <li class="nav-item mb-1">
             <NavLink class="nav-link" href="admin/products">
@@ -83,48 +103,3 @@
         hasExternalLogins = (await SignInManager.GetExternalAuthenticationSchemesAsync()).Any();
     }
 }
-
-
-
-
-
-
-
-@* @using Microsoft.AspNetCore.Identity
-@using TechDirect.Data
-
-@inject SignInManager<ApplicationUser> SignInManager
-
-<ul class="nav nav-pills flex-column">
-    <li class="nav-item">
-        <NavLink class="nav-link" href="Account/Manage" Match="NavLinkMatch.All">Profile</NavLink>
-    </li>
-    <li class="nav-item">
-        <NavLink class="nav-link" href="Account/Manage/Email">Email</NavLink>
-    </li>
-    <li class="nav-item">
-        <NavLink class="nav-link" href="Account/Manage/ChangePassword">Password</NavLink>
-    </li>
-    @if (hasExternalLogins)
-    {
-        <li class="nav-item">
-            <NavLink class="nav-link" href="Account/Manage/ExternalLogins">External logins</NavLink>
-        </li>
-    }
-    <li class="nav-item">
-        <NavLink class="nav-link" href="Account/Manage/TwoFactorAuthentication">Two-factor authentication</NavLink>
-    </li>
-    <li class="nav-item">
-        <NavLink class="nav-link" href="Account/Manage/PersonalData">Personal data</NavLink>
-    </li>
-</ul>
-
-@code {
-    private bool hasExternalLogins;
-
-    protected override async Task OnInitializedAsync()
-    {
-        hasExternalLogins = (await SignInManager.GetExternalAuthenticationSchemesAsync()).Any();
-    }
-}
- *@

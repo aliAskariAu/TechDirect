@@ -1,0 +1,25 @@
+﻿@using TechDirect.Services
+@inject CartService CartService
+@implements IDisposable
+
+<NavLink href="/cart" class="nav-link" Match="NavLinkMatch.All">
+    Cart (@CartService.Items.Count)
+</NavLink>
+
+@code {
+    protected override void OnInitialized()
+    {
+        CartService.OnChange += HandleCartChanged;
+    }
+
+    private void HandleCartChanged()
+    {
+        // Ensure render happens on the correct Blazor context
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        CartService.OnChange -= HandleCartChanged;
+    }
+}

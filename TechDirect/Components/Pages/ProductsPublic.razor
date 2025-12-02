@@ -1,0 +1,337 @@
+﻿@page "/products"
+@rendermode InteractiveServer
+@layout MainLayout
+
+@using TechDirect.Components.Layout
+@using TechDirect.Data
+@using Microsoft.EntityFrameworkCore
+@using TechDirect.Services
+@inject ApplicationDbContext Db
+@inject CartService Cart
+@inject NavigationManager Nav
+
+<h3 class="mb-4">Products</h3>
+
+<div class="row">
+    <!-- Left sidebar filters -->
+    <div class="col-md-3 mb-4">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Filter</h5>
+
+                <!-- Search -->
+                <div class="mb-3">
+                    <label class="form-label">Search</label>
+                    <input class="form-control"
+                           placeholder="Search..."
+                           value="@searchText"
+                           @oninput="OnSearchChanged" />
+                </div>
+
+                <!-- Category -->
+                <div class="mb-3">
+                    <label class="form-label">Category</label>
+                    <select class="form-select"
+                            value="@selectedCategoryId"
+                            @onchange="OnCategoryChanged">
+                        <option value="0">All categories</option>
+                        @foreach (var cat in categories)
+                        {
+                            <option value="@cat.Id">@cat.Name</option>
+                        }
+                    </select>
+                </div>
+
+                <!-- Price range -->
+                <div class="mb-3">
+                    <label class="form-label">Price range</label>
+                    <div class="d-flex gap-2">
+                        <input class="form-control"
+                               type="number"
+                               step="0.01"
+                               placeholder="Min"
+                               value="@minPriceText"
+                               @oninput="OnMinPriceChanged" />
+                        <input class="form-control"
+                               type="number"
+                               step="0.01"
+                               placeholder="Max"
+                               value="@maxPriceText"
+                               @oninput="OnMaxPriceChanged" />
+                    </div>
+                </div>
+
+                <!-- Sort -->
+                <div class="mb-1">
+                    <label class="form-label">Sort by</label>
+                    <select class="form-select"
+                            value="@sortOption"
+                            @onchange="OnSortChanged">
+                        <option value="name">Name</option>
+                        <option value="price-asc">Price low to high</option>
+                        <option value="price-desc">Price high to low</option>
+                        <option value="newest">Newest</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Right side products -->
+    <div class="col-md-9">
+        @if (isLoading)
+        {
+            <p>Loading products...</p>
+        }
+        else if (products.Count == 0)
+        {
+            <p>No products available.</p>
+        }
+        else
+        {
+            <div class="row g-3">
+                @foreach (var p in products.Take(visibleCount))
+                {
+                    <div class="col-lg-4 col-md-6">
+                        <div class="card h-100">
+                            @if (!string.IsNullOrEmpty(p.ImageUrl))
+                            {
+                                <img src="@p.ImageUrl"
+                                     class="card-img-top"
+                                     alt="@p.Name"
+                                     style="max-height: 180px; object-fit: contain;" />
+                            }
+
+                            <div class="card-body d-flex flex-column">
+                                <h5 class="card-title">@p.Name</h5>
+                                <p class="card-text text-muted mb-1">@p.Category?.Name</p>
+
+                                @if (p.DiscountPrice != null && p.DiscountPrice < p.Price)
+                                {
+                                    <p class="mb-3">
+                                        <span class="text-muted text-decoration-line-through me-2">
+                                            @p.Price.ToString("C")
+                                        </span>
+                                        <span class="fw-bold text-danger">
+                                            @p.DiscountPrice?.ToString("C")
+                                        </span>
+                                    </p>
+                                }
+                                else
+                                {
+                                    <p class="card-text fw-bold mb-3">
+                                        @p.Price.ToString("C")
+                                    </p>
+                                }
+
+
+                                <div class="mt-auto d-flex gap-2">
+                                    <NavLink class="btn btn-outline-secondary btn-sm"
+                                             href="@($"/products/{p.Id}")">
+                                        View details
+                                    </NavLink>
+
+                                    <button class="btn btn-primary btn-sm" @onclick="() => AddToCart(p)">
+                                        Add to cart
+                                    </button>
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+                }
+            </div>
+
+            @* Load Products Button  *@
+            @if (products.Count > visibleCount)
+            {
+                <div class="mt-3 text-center">
+                    <button class="btn btn-outline-secondary"
+                            @onclick="LoadMoreProducts">
+                        Load more
+                    </button>
+                </div>
+            }
+
+        }
+    </div>
+</div>
+
+
+
+
+@code {
+    private List<Product> allProducts = new(); // full list
+    private List<Product> products = new();    // filtered list
+
+    private List<Category> categories = new();
+
+    private string searchText = string.Empty;
+    private int selectedCategoryId = 0;
+
+    private bool isLoading = true;
+
+    private string minPriceText = string.Empty;
+    private string maxPriceText = string.Empty;
+
+    private decimal? minPrice = null;
+    private decimal? maxPrice = null;
+    private string sortOption = "name";
+
+    // number of cards per "page"
+    private const int ProductsPageSize = 9;   
+    private int visibleCount = ProductsPageSize;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadProducts();
+    }
+
+    private async Task LoadProducts()
+    {
+        isLoading = true;
+
+        // Load categories
+        categories = await Db.Categories
+            .OrderBy(c => c.Name)
+            .ToListAsync();
+
+        // Load all products
+        allProducts = await Db.Products
+            .Include(p => p.Category)
+            .OrderBy(p => p.Name)
+            .ToListAsync();
+
+        // Start with everything visible
+        products = allProducts.ToList();
+
+        isLoading = false;
+        
+       // Show products based on current filters
+        ApplyFilters();
+    }
+
+    private void OnSearchChanged(ChangeEventArgs e)
+    {
+        searchText = e.Value?.ToString() ?? string.Empty;
+        visibleCount = ProductsPageSize;
+        ApplyFilters();
+    }
+
+    private void OnCategoryChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var id))
+        {
+            selectedCategoryId = id;
+        }
+        else
+        {
+            selectedCategoryId = 0;
+        }
+
+        visibleCount = ProductsPageSize;
+        ApplyFilters();
+    }
+
+    private void ApplyFilters()
+    {
+        if (isLoading)
+            return;
+
+        var query = allProducts.AsQueryable();
+
+        // Search
+        if (!string.IsNullOrWhiteSpace(searchText))
+        {
+            var term = searchText.Trim().ToLower();
+            query = query.Where(p => p.Name.ToLower().Contains(term));
+        }
+
+        // Category
+        if (selectedCategoryId > 0)
+        {
+            query = query.Where(p => p.CategoryId == selectedCategoryId);
+        }
+
+        // Min price
+        if (minPrice.HasValue)
+        {
+            query = query.Where(p => p.SellingPrice >= minPrice.Value);
+        }
+
+        // Max price
+        if (maxPrice.HasValue)
+        {
+            query = query.Where(p => p.SellingPrice <= maxPrice.Value);
+        }
+
+        // Sorting
+        query = sortOption switch
+        {
+            "price-asc" => query.OrderBy(p => p.SellingPrice),
+            "price-desc" => query.OrderByDescending(p => p.SellingPrice),
+            "newest" => query.OrderByDescending(p => p.CreatedAt),
+            "name" => query.OrderBy(p => p.Name),
+            _ => query.OrderBy(p => p.Name)
+        };
+
+        products = query.ToList();
+    }
+
+
+    private void OnMinPriceChanged(ChangeEventArgs e)
+    {
+        minPriceText = e.Value?.ToString() ?? string.Empty;
+
+        if (decimal.TryParse(minPriceText, out var value) && value >= 0)
+        {
+            minPrice = value;
+        }
+        else
+        {
+            minPrice = null;
+        }
+
+        visibleCount = ProductsPageSize;
+        ApplyFilters();
+    }
+
+    private void OnMaxPriceChanged(ChangeEventArgs e)
+    {
+        maxPriceText = e.Value?.ToString() ?? string.Empty;
+
+        if (decimal.TryParse(maxPriceText, out var value) && value >= 0)
+        {
+            maxPrice = value;
+        }
+        else
+        {
+            maxPrice = null;
+        }
+
+        visibleCount = ProductsPageSize;
+        ApplyFilters();
+    }
+
+    private void OnSortChanged(ChangeEventArgs e)
+    {
+        sortOption = e.Value?.ToString() ?? "name";
+        visibleCount = ProductsPageSize;
+        ApplyFilters();
+    }
+
+   
+
+    private void AddToCart(Product p)
+    {
+        Cart.AddItem(p);
+        Nav.NavigateTo("/cart");
+    }
+
+    private void LoadMoreProducts()
+    {
+        visibleCount = Math.Min(visibleCount + ProductsPageSize, products.Count);
+    }
+
+}
+

@@ -1,0 +1,133 @@
+﻿@rendermode InteractiveServer
+@using TechDirect.Data
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.Extensions.DependencyInjection
+@inject IServiceScopeFactory ScopeFactory
+
+<div class="mt-4">
+    <h4>Recent orders</h4>
+
+    @if (isLoading)
+    {
+        <p>Loading recent orders...</p>
+    }
+    else if (!recentOrders.Any())
+    {
+        <p>No orders yet.</p>
+    }
+    else
+    {
+        <table class="table table-sm table-hover align-middle">
+            <thead>
+                <tr>
+                    <th scope="col">Order #</th>
+                    <th scope="col">Customer</th>
+                    <th scope="col">Email</th>
+                    <th scope="col" class="text-end">Total</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Date</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var o in recentOrders)
+                {
+                    <tr>
+                        <td>@o.Id</td>
+                        <td>@o.CustomerName</td>
+                        <td>@o.Email</td>
+                        <td class="text-end">@o.Total.ToString("C")</td>
+                        <td>@o.Status</td>
+                        <td>@o.CreatedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+@code {
+    private bool isLoading = true;
+    private List<RecentOrderRow> recentOrders = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadRecentOrdersAsync();
+    }
+
+    private async Task LoadRecentOrdersAsync()
+    {
+        isLoading = true;
+        recentOrders.Clear();
+
+        using var scope = ScopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        // 1. Get last 10 orders
+        var orders = await db.Orders
+            .OrderByDescending(o => o.CreatedAt)
+            .Take(10)
+            .ToListAsync();
+
+        // 2. Load users for those orders
+        var userIds = orders
+            .Select(o => o.UserId)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct()
+            .ToList();
+
+        var users = await db.Users
+            .Where(u => userIds.Contains(u.Id))
+            .ToListAsync();
+
+        var userMap = users.ToDictionary(u => u.Id);
+
+        // 3. Project to view model with full name and email
+        foreach (var o in orders)
+        {
+            userMap.TryGetValue(o.UserId, out var user);
+
+            var fullName = GetUserFullName(user);
+            var email = user?.Email ?? string.Empty;
+
+            recentOrders.Add(new RecentOrderRow
+            {
+                Id = o.Id,
+                CustomerName = fullName,
+                Email = email,
+                Total = o.Total,
+                Status = o.Status,
+                CreatedAt = o.CreatedAt
+            });
+        }
+
+        isLoading = false;
+    }
+
+    private static string GetUserFullName(ApplicationUser? user)
+    {
+        if (user == null)
+            return "Unknown";
+
+        var first = user.FirstName ?? string.Empty;
+        var last = user.LastName ?? string.Empty;
+        var full = $"{first} {last}".Trim();
+
+        if (!string.IsNullOrWhiteSpace(full))
+            return full;
+
+        if (!string.IsNullOrWhiteSpace(user.Email))
+            return user.Email;
+
+        return "Unknown";
+    }
+
+    private class RecentOrderRow
+    {
+        public int Id { get; set; }                  // change type if your Order.Id is not int
+        public string CustomerName { get; set; } = "";
+        public string Email { get; set; } = "";
+        public decimal Total { get; set; }
+        public string Status { get; set; } = "";
+        public DateTime CreatedAt { get; set; }
+    }
+}

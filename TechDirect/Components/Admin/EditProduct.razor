@@ -1,0 +1,183 @@
+﻿@page "/admin/products/edit/{Id:int}"
+@rendermode InteractiveServer
+@layout ManageLayout
+
+@using TechDirect.Components.Account.Shared
+@using TechDirect.Data
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Components.Forms
+@inject ApplicationDbContext Db
+@inject NavigationManager Nav
+@inject IWebHostEnvironment Env
+
+<h3>Edit Product</h3>
+
+@if (product == null)
+{
+    <p>Loading...</p>
+}
+else
+{
+    <div class="card">
+        <div class="card-body">
+            <div class="row g-3">
+
+                <div class="col-md-4">
+                    <label class="form-label">Name</label>
+                    <input class="form-control" @bind="product.Name" />
+                </div>
+
+                <div class="col-md-4">
+                    <label class="form-label">Price</label>
+                    <input class="form-control" type="number" step="0.01" @bind="product.Price" />
+                </div>
+
+                <div class="col-md-4">
+                    <label class="form-label">Discount price (optional)</label>
+                    <InputNumber @bind-Value="product.DiscountPrice"
+                                 step="0.01"
+                                 class="form-control" />
+                </div>
+
+                <div class="col-md-4">
+                    <label class="form-label">Stock</label>
+                    <input class="form-control" type="number" @bind="product.Stock" />
+                </div>
+
+                <div class="col-12">
+                    <label class="form-label">Description</label>
+                    <textarea class="form-control" rows="3" @bind="product.Description"></textarea>
+                </div>
+
+                <div class="col-12">
+                    <label class="form-label">Category</label>
+                    <select class="form-select" @bind="product.CategoryId">
+                        @foreach (var cat in categories)
+                        {
+                            <option value="@cat.Id">@cat.Name</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label">Current Image</label><br />
+
+                    @if (!string.IsNullOrEmpty(product.ImageUrl))
+                    {
+                        <img src="@product.ImageUrl"
+                             style="max-width: 150px; max-height: 150px; object-fit: contain;" />
+                    }
+                    else
+                    {
+                        <span class="text-muted">No image</span>
+                    }
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label">Upload new image</label>
+                    <InputFile OnChange="OnImageSelected" accept="image/*" />
+                </div>
+
+                <div class="col-12 mt-5">
+                    <button class="btn btn-primary" @onclick="SaveChanges">Save</button>
+                    <button class="btn btn-secondary ms-2" @onclick="Back">Cancel</button>
+                </div>
+
+                @if (!string.IsNullOrEmpty(message))
+                {
+                    <div class="alert alert-info mt-3">@message</div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private Product? product;
+    private List<Category> categories = new();
+    private IBrowserFile? uploadedImage;
+    private string? message;
+
+    protected override async Task OnInitializedAsync()
+    {
+        product = await Db.Products.FirstOrDefaultAsync(p => p.Id == Id);
+        categories = await Db.Categories.OrderBy(c => c.Name).ToListAsync();
+    }
+
+    private void OnImageSelected(InputFileChangeEventArgs e)
+    {
+        uploadedImage = e.File;
+    }
+
+    private async Task SaveChanges()
+    {
+        if (product == null)
+            return;
+
+        message = null;
+
+        // Basic validation
+        if (string.IsNullOrWhiteSpace(product.Name))
+        {
+            message = "Product name is required.";
+            return;
+        }
+
+        if (product.Price <= 0)
+        {
+            message = "Price must be greater than zero.";
+            return;
+        }
+
+        if (product.DiscountPrice.HasValue)
+        {
+            if (product.DiscountPrice.Value <= 0)
+            {
+                message = "Discount price must be greater than zero.";
+                return;
+            }
+
+            if (product.DiscountPrice.Value >= product.Price)
+            {
+                message = "Discount price must be less than the normal price.";
+                return;
+            }
+        }
+
+        if (product.CategoryId <= 0)
+        {
+            message = "Please select a category.";
+            return;
+        }
+
+        // Handle image upload if a new file was chosen
+        if (uploadedImage != null)
+        {
+            const long maxSize = 5 * 1024 * 1024;
+            var uploads = Path.Combine(Env.WebRootPath, "images", "products");
+            Directory.CreateDirectory(uploads);
+
+            var ext = Path.GetExtension(uploadedImage.Name);
+            var fileName = $"{Guid.NewGuid()}{ext}";
+            var filePath = Path.Combine(uploads, fileName);
+
+            await using var stream = File.Create(filePath);
+            await uploadedImage.OpenReadStream(maxSize).CopyToAsync(stream);
+
+            product.ImageUrl = $"/images/products/{fileName}";
+        }
+
+        await Db.SaveChangesAsync();
+
+        // Go back to product list
+        Nav.NavigateTo("/admin/products");
+    }
+
+    private void Back()
+    {
+        Nav.NavigateTo("/admin/products");
+    }
+}
+

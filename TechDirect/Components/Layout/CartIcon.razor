@@ -1,0 +1,36 @@
+﻿@rendermode InteractiveServer
+@using TechDirect.Services
+@implements IDisposable
+@inject CartService Cart
+
+<a class="nav-link position-relative" href="/cart">
+    <i class="bi bi-basket3-fill fs-4"></i>
+    <span class="ms-1">Cart</span>
+
+    @if (TotalQuantity > 0)
+    {
+        <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
+            @TotalQuantity
+        </span>
+    }
+</a>
+
+@code {
+    private int TotalQuantity => Cart.Items.Sum(i => i.Quantity);
+
+    protected override void OnInitialized()
+    {
+        Cart.OnChange += CartChanged;
+    }
+
+    private void CartChanged()
+    {
+        // Make sure we are on the Blazor sync context
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        Cart.OnChange -= CartChanged;
+    }
+}

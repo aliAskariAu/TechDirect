@@ -1,0 +1,482 @@
+﻿@page "/admin/products"
+@rendermode InteractiveServer
+@layout ManageLayout
+
+@using TechDirect.Components.Account.Shared
+@using TechDirect.Data
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Components.Forms
+@using System.IO
+
+@inject IWebHostEnvironment Env
+@inject ApplicationDbContext Db
+
+<h3>Manage Products</h3>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <h5 class="card-title">Create new product</h5>
+
+        <div class="row g-3">
+            <div class="col-md-4">
+                <label class="form-label">Name</label>
+                <input class="form-control"
+                       @bind="newProduct.Name" />
+            </div>
+
+            <div class="col-md-4">
+                <label class="form-label">Price</label>
+                <input class="form-control"
+                       type="number"
+                       step="0.01"
+                       @bind="newProduct.Price" />
+            </div>
+
+            <div class="col-md-4">
+                <label class="form-label">Discount price (optional)</label>
+                <InputNumber @bind-Value="newProduct.DiscountPrice"
+                             step="0.01"
+                             class="form-control" />
+            </div>
+
+            <div class="col-md-4">
+                <label class="form-label">Stock</label>
+                <input class="form-control"
+                       type="number"
+                       @bind="newProduct.Stock" />
+            </div>
+
+            <div class="col-12">
+                <label class="form-label">Description</label>
+                <textarea class="form-control"
+                          rows="3"
+                          @bind="newProduct.Description"></textarea>
+            </div>
+
+            <div class="col-md-6">
+                <label class="form-label">Category</label>
+                <select class="form-select"
+                        @bind="newProduct.CategoryId">
+                    <option value="">-- Select category --</option>
+                    @foreach (var cat in categories)
+                    {
+                        <option value="@cat.Id">@cat.Name</option>
+                    }
+                </select>
+            </div>
+
+            <div class="col-md-6">
+                <label class="form-label">Product image</label>
+                <InputFile OnChange="OnImageSelected" accept="image/*" />
+                @if (!string.IsNullOrEmpty(imagePreviewText))
+                {
+                    <div class="form-text">@imagePreviewText</div>
+                }
+            </div>
+
+
+            <div class="col-12">
+                <button class="btn btn-primary"
+                        @onclick="CreateProduct">
+                    Save product
+                </button>
+            </div>
+
+            @if (!string.IsNullOrEmpty(message))
+            {
+                <div class="col-12 mt-2">
+                    <div class="alert alert-info">@message</div>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@* Filter For Product Listed *@
+
+<div class="card mb-3">
+    <div class="card-body">
+        <h5 class="card-title">Filter products</h5>
+
+        <div class="row g-2 align-items-end">
+            <div class="col-md-4">
+                <label class="form-label">Search by name</label>
+                <input class="form-control"
+                       @bind="searchTerm"
+                       @bind:event="oninput" />
+            </div>
+
+            <div class="col-md-4">
+                <label class="form-label">Category</label>
+                <select class="form-select"
+                        @bind="filterCategoryId">
+                    <option value="">All categories</option>
+                    @foreach (var cat in categories)
+                    {
+                        <option value="@cat.Id">@cat.Name</option>
+                    }
+                </select>
+            </div>
+
+            <div class="col-md-4">
+                <button type="button"
+                        class="btn btn-primary me-2"
+                        @onclick="ApplyFiltersAsync">
+                    Apply
+                </button>
+                <button type="button"
+                        class="btn btn-outline-secondary"
+                        @onclick="ResetFiltersAsync">
+                    Reset
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+@if (products == null)
+{
+    <p>Loading products...</p>
+}
+else if (products.Count == 0)
+{
+    <p>No products created yet.</p>
+}
+else
+{
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Category</th>
+                <th>Price</th>
+                <th>Stock</th>
+                <th>Image</th>
+                <th style="width: 160px;">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var p in products)
+            {
+                <tr>
+                    <td>@p.Name</td>
+                    <td>@p.Category?.Name</td>
+                    <td>@p.Price</td>
+                    <td>@p.Stock</td>
+                    <td>
+                        @if (!string.IsNullOrEmpty(p.ImageUrl))
+                        {
+                            <img src="@p.ImageUrl"
+                                 alt="@p.Name"
+                                 style="max-width: 100px; max-height: 100px; object-fit: contain;" />
+                        }
+                        else
+                        {
+                            <span class="text-muted">No image</span>
+                        }
+                    </td>
+                    <td>
+                        <NavLink class="btn btn-sm btn-outline-primary me-2"
+                                 href="@($"/admin/products/edit/{p.Id}")">
+                            Edit
+                        </NavLink>
+
+                        <button class="btn btn-sm btn-outline-danger"
+                                @onclick="() => OpenDeleteConfirm(p)">
+                            Delete
+                        </button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+
+    @if (totalPages > 1)
+    {
+        <nav aria-label="Product pagination">
+            <ul class="pagination">
+                <li class="page-item @(currentPage == 1 ? "disabled" : "")">
+                    <button class="page-link"
+                            @onclick="async () => await GoToPageAsync(currentPage - 1)">
+                        Previous
+                    </button>
+                </li>
+
+                @for (var i = 1; i <= totalPages; i++)
+                {
+                    var pageNumber = i;   
+
+                    <li class="page-item @(pageNumber == currentPage ? "active" : "")">
+                        <button class="page-link"
+                                @onclick="async () => await GoToPageAsync(pageNumber)">
+                            @pageNumber
+                        </button>
+                    </li>
+                }
+
+
+                <li class="page-item @(currentPage == totalPages ? "disabled" : "")">
+                    <button class="page-link"
+                            @onclick="async () => await GoToPageAsync(currentPage + 1)">
+                        Next
+                    </button>
+                </li>
+            </ul>
+        </nav>
+
+        <p class="text-muted">
+            Showing page @currentPage of @totalPages
+            (@totalProducts products total)
+        </p>
+    }
+}
+
+
+
+@if (showDeleteConfirm && productToDelete != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Delete product</h5>
+                    <button type="button" class="btn-close" aria-label="Close" @onclick="CancelDelete"></button>
+                </div>
+                <div class="modal-body">
+                    <p>
+                        Are you sure you want to delete
+                        <strong>@productToDelete.Name</strong>?
+                    </p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="CancelDelete">Cancel</button>
+                    <button class="btn btn-danger" @onclick="ConfirmDelete">Delete</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+
+@code {
+    private List<Category> categories = new();
+    private List<Product> products = new();
+    private Product newProduct = new();
+    private string? message;
+    private IBrowserFile? uploadedImageFile;
+    private string? imagePreviewText;
+    private bool showDeleteConfirm;
+    private Product? productToDelete;
+
+    // FILTERS + PAGINATION
+    private string? searchTerm;
+    private int? filterCategoryId;
+    private int currentPage = 1;
+    private int pageSize = 10;
+    private int totalProducts;
+    private int totalPages => (int)Math.Ceiling((double)totalProducts / pageSize);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCategories();
+        await LoadProducts();
+    }
+
+    private async Task LoadCategories()
+    {
+        categories = await Db.Categories
+            .OrderBy(c => c.Name)
+            .ToListAsync();
+    }
+
+    private async Task LoadProducts()
+    {
+        // Start base query
+        var query = Db.Products
+            .Include(p => p.Category)
+            .AsQueryable();
+
+        // Apply search filter
+        if (!string.IsNullOrWhiteSpace(searchTerm))
+        {
+            var term = searchTerm.Trim();
+            query = query.Where(p => p.Name.Contains(term));
+        }
+
+        // Apply category filter
+        if (filterCategoryId.HasValue && filterCategoryId.Value > 0)
+        {
+            query = query.Where(p => p.CategoryId == filterCategoryId.Value);
+        }
+
+        // Count after filters
+        totalProducts = await query.CountAsync();
+
+        // If nothing to show
+        if (totalProducts == 0)
+        {
+            currentPage = 1;
+            products = new List<Product>();
+            return;
+        }
+
+        // Use the calculated totalPages property
+        var maxPage = totalPages;
+        if (currentPage > maxPage)
+        {
+            currentPage = maxPage;
+        }
+
+        // Fetch one page
+        products = await query
+            .OrderBy(p => p.Name)
+            .Skip((currentPage - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+    }
+
+
+    private async Task ApplyFiltersAsync()
+    {
+        currentPage = 1;
+        await LoadProducts();
+    }
+
+    private async Task ResetFiltersAsync()
+    {
+        searchTerm = null;
+        filterCategoryId = null;
+        currentPage = 1;
+        await LoadProducts();
+    }
+
+    private async Task GoToPageAsync(int page)
+    {
+        if (page < 1) return;
+        if (totalPages > 0 && page > totalPages) return;
+
+        currentPage = page;
+        await LoadProducts();
+    }
+
+
+
+    private async Task CreateProduct()
+    {
+        message = null;
+
+        if (string.IsNullOrWhiteSpace(newProduct.Name))
+        {
+            message = "Product name is required.";
+            return;
+        }
+
+        if (newProduct.Price <= 0)
+        {
+            message = "Price must be greater than zero.";
+            return;
+        }
+
+        if (newProduct.DiscountPrice.HasValue)
+        {
+            if (newProduct.DiscountPrice.Value <= 0)
+            {
+                message = "Discount price must be greater than zero.";
+                return;
+            }
+
+            if (newProduct.DiscountPrice.Value >= newProduct.Price)
+            {
+                message = "Discount price must be less than normal price.";
+                return;
+            }
+        }
+
+        if (newProduct.CategoryId <= 0)
+        {
+            message = "Please select a category.";
+            return;
+        }
+
+        // Handle image upload if a file was chosen
+        if (uploadedImageFile != null)
+        {
+            // Max 5 MB for safety
+            const long maxFileSize = 5 * 1024 * 1024;
+
+            var uploadsFolder = Path.Combine(Env.WebRootPath, "images", "products");
+            Directory.CreateDirectory(uploadsFolder);
+
+            var extension = Path.GetExtension(uploadedImageFile.Name);
+            var fileName = $"{Guid.NewGuid()}{extension}";
+            var filePath = Path.Combine(uploadsFolder, fileName);
+
+            await using var stream = File.Create(filePath);
+            await uploadedImageFile.OpenReadStream(maxFileSize).CopyToAsync(stream);
+
+            // Save relative path for use in img src
+            newProduct.ImageUrl = $"/images/products/{fileName}";
+        }
+
+        newProduct.CreatedAt = DateTime.UtcNow;
+
+        Db.Products.Add(newProduct);
+        await Db.SaveChangesAsync();
+
+        message = "Product created successfully.";
+
+        // Reset the form and uploaded file
+        newProduct = new Product();
+        uploadedImageFile = null;
+        imagePreviewText = null;
+
+        await LoadProducts();
+    }
+
+    // Upload Image Method
+    private void OnImageSelected(InputFileChangeEventArgs e)
+    {
+        uploadedImageFile = e.File;
+
+        if (uploadedImageFile != null)
+        {
+            imagePreviewText = $"Selected: {uploadedImageFile.Name} ({uploadedImageFile.Size / 1024} KB)";
+        }
+        else
+        {
+            imagePreviewText = null;
+        }
+    }
+
+    // Delete Product Method
+   
+    private void OpenDeleteConfirm(Product product)
+    {
+        productToDelete = product;
+        showDeleteConfirm = true;
+    }
+
+    private void CancelDelete()
+    {
+        showDeleteConfirm = false;
+        productToDelete = null;
+    }
+
+    private async Task ConfirmDelete()
+    {
+        if (productToDelete == null)
+            return;
+
+        Db.Products.Remove(productToDelete);
+        await Db.SaveChangesAsync();
+
+        showDeleteConfirm = false;
+        productToDelete = null;
+
+        await LoadProducts();
+    }
+
+
+
+}
